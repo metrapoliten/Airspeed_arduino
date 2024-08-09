@@ -1,12 +1,9 @@
 #include "MS5611.h"
 
-MS5611 STATIC{ 0x76 };  // поменять адреса местами, если неправильно
-MS5611 TOTAL{ 0x77 };
-
-/* \varepsilon (ε) */
-float compressibilityCorrection;  // поправка на сжимаемость потока
-
 namespace {
+constexpr uint8_t kStaticAddr = 0x76; // поменять адреса местами, если неправильно
+constexpr uint8_t kTotalAddr = 0x77;
+
 /* \sigma (ς) */
 constexpr float kCorrectionFactor{ 1. };  // поправочный коэффициент, необходимо поменять после опыта
 
@@ -14,6 +11,12 @@ constexpr float kMbar2mmHg{ 0.7500616 };
 constexpr float kMbar2Pa{ 100. };
 
 constexpr float kGravAcceleration{ 9.81 };
+}
+
+MS5611 STATIC{ kStaticAddr };
+MS5611 TOTAL{ kTotalAddr };
+
+namespace {
 
 inline void checkRead() {
   int res{ STATIC.read() };
@@ -63,7 +66,34 @@ inline float getCompressibilityCorrection(float airspeed) {
   return airspeed * airspeed / 435600;
 }
 
+
+inline bool checkBegin(MS5611& dev, uint8_t addr)
+{
+  bool init{ dev.begin() };
+  if (!init)
+  {
+    Serial.print(addr, HEX);
+    Serial.println(F(" not found. Halt. Reason: "));
+    if (!dev.isConnected())
+    {
+      Serial.println(F("not available on the I2C bus."));
+    }
+    else if (!dev.reset())
+    {
+      Serial.println(F("ROM could not be read."));
+    }
+    else {
+      Serial.println(F("unhandled error."));
+    }
+    return false;
+  }
+  return true;
+}
+
 }  // end of nameless namespace
+
+/* \varepsilon (ε) */
+float compressibilityCorrection;  // поправка на сжимаемость потока
 
 void setup() {
   Serial.begin(115200);
@@ -71,21 +101,13 @@ void setup() {
     ;
 
   Wire.begin();
-  bool oneBegin{ STATIC.begin() };
-  bool twoBegin{ TOTAL.begin() };
-  if (oneBegin == true and twoBegin == true) {
-    Serial.println(F("Two MS5611 are found."));
-  } else {
-    if (!oneBegin) {
-      Serial.println(F("0x76 not found. Halt."));
-    }
-    if (!twoBegin) {
-      Serial.println(F("0x77 not found. Halt."));
-    }
-
-    while (1)
-      ;
+  
+  if (!checkBegin(STATIC, kStaticAddr) or !checkBegin(TOTAL, kTotalAddr))
+  {
+    while(1);
   }
+  Serial.println(F("Two MS5611 are found"));
+
   STATIC.setOversampling(OSR_STANDARD);
   TOTAL.setOversampling(OSR_STANDARD);
   Serial.println();
