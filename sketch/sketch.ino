@@ -53,6 +53,7 @@ inline float getdiffPressure(float staticPressure) {
  *  \return Returns the differential pressure in Pa
  */
 inline float getAirspeed(float diffPressure, float density, float compressibilityCorrection) {
+  if (diffPressure < 0) return -1;
   /* V = sqrt( 2 * ς * (p_1 - p_2) / [ρ * (1 + ε)]) */
   return M_SQRT2 * sqrtf(kCorrectionFactor * diffPressure / (density * (1 + compressibilityCorrection)));
 }
