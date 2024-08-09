@@ -98,7 +98,7 @@ void loop() {
   float staticPressure{ STATIC.getPressure() };        // in mbar
   float staticTemperature{ STATIC.getTemperature() };  // in °C
 
-  float density{ getDensity(staticPressure, staticTemperature * kMbar2mmHg) };  // in kg/m^3
+  float density{ getDensity(staticPressure * kMbar2mmHg, staticTemperature) };  // in kg/m^3
 
   float diffPressure{ getdiffPressure(staticPressure) };  // in Pa
 
