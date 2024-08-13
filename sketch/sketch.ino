@@ -1,7 +1,7 @@
 #include "MS5611.h"
 
 namespace {
-constexpr uint8_t kStaticAddr = 0x76; // поменять адреса местами, если неправильно
+constexpr uint8_t kStaticAddr = 0x76;  // поменять адреса местами, если неправильно
 constexpr uint8_t kTotalAddr = 0x77;
 
 /* \sigma (ς) */
@@ -68,22 +68,16 @@ inline float getCompressibilityCorrection(float airspeed) {
 }
 
 
-inline bool checkBegin(MS5611& dev, uint8_t addr)
-{
+inline bool checkBegin(MS5611& dev, uint8_t addr) {
   bool init{ dev.begin() };
-  if (!init)
-  {
+  if (!init) {
     Serial.print(addr, HEX);
     Serial.println(F(" not found. Halt. Reason: "));
-    if (!dev.isConnected())
-    {
+    if (!dev.isConnected()) {
       Serial.println(F("not available on the I2C bus."));
-    }
-    else if (!dev.reset())
-    {
+    } else if (!dev.reset()) {
       Serial.println(F("ROM could not be read."));
-    }
-    else {
+    } else {
       Serial.println(F("unhandled error."));
     }
     return false;
@@ -91,10 +85,29 @@ inline bool checkBegin(MS5611& dev, uint8_t addr)
   return true;
 }
 
+constexpr float kFeedbackOldCoef{ 0.1 };     // b_1, для пояснения см. ниже
+constexpr float kFeedbackNewCoef{ 0.1 };     // b_0
+constexpr float kFeedforwardOldCoef{ 0.8 };  // a_1
+
+/*! \brief first-order IIR filter
+ * See: https://www.researchgate.net/publication/318652390_Design_of_Filter_for_Airspeed_Sensor_in_Hybrid_Vertical_Take-Off_and_Landing_VTOL_UAV
+ *  \param rawOld old raw differential pressure input
+ *  \param rawNew new raw differential pressure input
+ *  \param filteredOld old filtered differential pressure output
+ *  \return Returns filtered differential pressure value
+ */
+inline float filterDiffPressure(float rawOld, float rawNew, float filteredOld) {
+  return kFeedbackOldCoef * rawOld + kFeedbackNewCoef * rawNew + kFeedforwardOldCoef * filteredOld;
+}
+
 }  // end of nameless namespace
 
 /* \varepsilon (ε) */
 float compressibilityCorrection;  // поправка на сжимаемость потока
+
+float filtered;  // фильтрованное значение разницы давлений
+float rawDiffPressureOld; // старое нефильтрованное значение
+float rawDiffPressureNew; // новое
 
 void setup() {
   Serial.begin(115200);
@@ -102,16 +115,29 @@ void setup() {
     ;
 
   Wire.begin();
-  
-  if (!checkBegin(STATIC, kStaticAddr) or !checkBegin(TOTAL, kTotalAddr))
-  {
-    while(1);
+
+  if (!checkBegin(STATIC, kStaticAddr) or !checkBegin(TOTAL, kTotalAddr)) {
+    while (1)
+      ;
   }
   Serial.println(F("Two MS5611 are found"));
 
   STATIC.setOversampling(OSR_STANDARD);
   TOTAL.setOversampling(OSR_STANDARD);
   Serial.println();
+
+  checkRead();
+
+  float staticPressure{ STATIC.getPressure() };        // in mbar
+  float staticTemperature{ STATIC.getTemperature() };  // in °C
+
+  float density{ getDensity(staticPressure * kMbar2mmHg, staticTemperature) };  // in kg/m^3
+
+  filtered = rawDiffPressureOld = getdiffPressure(staticPressure);  // in Pa
+
+  float airspeed {getAirspeed(rawDiffPressureOld, density, compressibilityCorrection)};
+
+  compressibilityCorrection = getCompressibilityCorrection(airspeed);
 }
 
 
@@ -123,9 +149,13 @@ void loop() {
 
   float density{ getDensity(staticPressure * kMbar2mmHg, staticTemperature) };  // in kg/m^3
 
-  float diffPressure{ getdiffPressure(staticPressure) };  // in Pa
+  rawDiffPressureNew = getdiffPressure(staticPressure);  // in Pa
 
-  float airspeed{ getAirspeed(diffPressure, density, compressibilityCorrection) };
+  filtered = filterDiffPressure(rawDiffPressureOld, rawDiffPressureNew, filtered);
+
+  float airspeed{ getAirspeed(filtered, density, compressibilityCorrection) };
+
+  rawDiffPressureOld = rawDiffPressureNew;
 
   Serial.println(airspeed, 2);
 
